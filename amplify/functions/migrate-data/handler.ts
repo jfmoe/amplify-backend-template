@@ -4,7 +4,7 @@ import { DynamoDBClient, PutItemCommand, ScanCommand } from '@aws-sdk/client-dyn
 import { Logger } from '@aws-lambda-powertools/logger';
 import { chunk } from 'lodash-es';
 
-const CHUNK_SIZE = 10;
+const CHUNK_SIZE = 25;
 
 const client = new DynamoDBClient({});
 
@@ -34,7 +34,7 @@ export const handler: Handler = async ({ sourceTableName, targetTableName }: Han
     const chunks = chunk(allItems, CHUNK_SIZE);
 
     for (const chunk of chunks) {
-      logger.info(`creating tasks for chunk: ${chunk}`);
+      logger.info(`creating tasks for chunk: ${JSON.stringify(chunk)}`);
       await Promise.all(updateItemsInTargetTable(chunk, targetTableName));
       logger.info(`Processed chunk ${count++} of ${chunks.length}`);
     }
