@@ -7,12 +7,14 @@ import { auth } from './auth/resource';
 import { data } from './data/resource';
 import { refreshApiKey } from './jobs/refresh-api-key/resource';
 import { dynamoDBFunction } from './functions/dynamoDB-function/resource';
+import { migrateData } from './functions/migrate-data/resource';
 
 const backend = defineBackend({
   auth,
   data,
   refreshApiKey,
   dynamoDBFunction,
+  migrateData,
 });
 
 /* --------------------------- Configuration start -------------------------- */
@@ -41,6 +43,17 @@ const refreshApiKeyLambda = backend.refreshApiKey.resources.lambda;
 refreshApiKeyLambda.addToRolePolicy(
   new PolicyStatement({
     actions: ['appsync:UpdateApiKey'],
+    resources: ['*'],
+  }),
+);
+
+/**
+ * 添加迁移数据的权限
+ */
+const migrateDataLambda = backend.migrateData.resources.lambda;
+migrateDataLambda.addToRolePolicy(
+  new PolicyStatement({
+    actions: ['dynamodb:Scan', 'dynamodb:PutItem'],
     resources: ['*'],
   }),
 );
