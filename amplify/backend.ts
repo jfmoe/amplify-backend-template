@@ -2,6 +2,9 @@ import { defineBackend } from '@aws-amplify/backend';
 import { Policy, PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
 import { Stack } from 'aws-cdk-lib';
 import { StartingPosition, EventSourceMapping } from 'aws-cdk-lib/aws-lambda';
+import { BackupPlan, BackupPlanRule, BackupResource, BackupVault } from 'aws-cdk-lib/aws-backup';
+import { Schedule } from 'aws-cdk-lib/aws-events';
+import { Duration } from 'aws-cdk-lib/core';
 
 import { auth } from './auth/resource';
 import { data } from './data/resource';
@@ -32,6 +35,40 @@ amplifyDynamoDbTables['Todo'].timeToLiveAttribute = {
   attributeName: 'expiredAt',
   enabled: true,
 };
+
+/**
+ * 按需备份所有 table
+ */
+const backupStack = backend.createStack('backup-stack');
+const myTables = Object.values(backend.data.resources.tables);
+
+const vault = new BackupVault(backupStack, 'BackupVault', {
+  backupVaultName: 'backup-vault',
+});
+
+const plan = new BackupPlan(backupStack, 'BackupPlan', {
+  backupPlanName: 'backup-plan',
+  backupVault: vault,
+});
+
+plan.addRule(
+  new BackupPlanRule({
+    deleteAfter: Duration.days(365),
+    ruleName: 'backup-plan-rule',
+    scheduleExpression: Schedule.cron({
+      minute: '0',
+      hour: '0',
+      day: '1',
+      month: '*',
+      year: '*',
+    }),
+  }),
+);
+
+plan.addSelection('BackupPlanSelection', {
+  resources: myTables.map(table => BackupResource.fromDynamoDbTable(table)),
+  allowRestores: true,
+});
 
 /* --------------------------- Configuration end -------------------------- */
 
