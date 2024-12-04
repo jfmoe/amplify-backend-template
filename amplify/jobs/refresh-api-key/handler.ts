@@ -2,6 +2,7 @@ import { AppSyncClient, UpdateApiKeyCommand } from '@aws-sdk/client-appsync';
 import { Logger } from '@aws-lambda-powertools/logger';
 import { env } from '$amplify/env/refresh-api-key';
 import dayjs from 'dayjs';
+import { backend } from '../../backend';
 
 const logger = new Logger({
   logLevel: 'INFO',
@@ -9,6 +10,8 @@ const logger = new Logger({
 });
 
 export const handler = async () => {
+  logger.warn(backend.data.resources.graphqlApi.apiId);
+  logger.warn(JSON.stringify(backend.data.resources));
   if (!env.API_ID) {
     logger.error('Missing env variable API_ID');
     return;
