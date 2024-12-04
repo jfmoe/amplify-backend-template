@@ -2,7 +2,6 @@ import { AppSyncClient, UpdateApiKeyCommand } from '@aws-sdk/client-appsync';
 import { Logger } from '@aws-lambda-powertools/logger';
 import { env } from '$amplify/env/refresh-api-key';
 import dayjs from 'dayjs';
-import { backend } from '../../backend';
 
 const logger = new Logger({
   logLevel: 'INFO',
