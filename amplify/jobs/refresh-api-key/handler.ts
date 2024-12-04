@@ -10,8 +10,6 @@ const logger = new Logger({
 });
 
 export const handler = async () => {
-  logger.warn(backend.data.resources.graphqlApi.apiId);
-  logger.warn(JSON.stringify(backend.data.resources));
   if (!env.API_ID) {
     logger.error('Missing env variable API_ID');
     return;

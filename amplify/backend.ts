@@ -5,7 +5,7 @@ import { auth } from './auth/resource';
 import { data } from './data/resource';
 import { refreshApiKey } from './jobs/refresh-api-key/resource';
 
-export const backend = defineBackend({
+const backend = defineBackend({
   auth,
   data,
   refreshApiKey,
