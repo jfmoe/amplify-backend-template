@@ -5,7 +5,7 @@ import { defineFunction, secret } from '@aws-amplify/backend';
  */
 export const refreshApiKey = defineFunction({
   name: 'refresh-api-key',
-  schedule: 'every 5m',
+  schedule: 'every day',
   entry: './handler.ts',
   environment: {
     API_KEY: secret('API_KEY'),

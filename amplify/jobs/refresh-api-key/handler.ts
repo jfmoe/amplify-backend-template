@@ -9,12 +9,17 @@ const logger = new Logger({
 });
 
 export const handler = async () => {
-  try {
-    if (!env.API_ID || !env.API_KEY) {
-      logger.error('Missing env variables API_ID or API_KEY');
-      return;
-    }
+  if (!env.API_ID) {
+    logger.error('Missing env variable API_ID');
+    return;
+  }
 
+  if (!env.API_KEY) {
+    logger.error('Missing secret API_KEY');
+    return;
+  }
+
+  try {
     const client = new AppSyncClient({
       region: env.REGION,
     });
@@ -23,7 +28,7 @@ export const handler = async () => {
       apiId: env.API_ID,
       id: env.API_KEY,
       description: 'refresh apikey',
-      expires: dayjs().add(1, 'month').unix(),
+      expires: dayjs().add(1, 'year').unix(),
     };
 
     const command = new UpdateApiKeyCommand(input);
