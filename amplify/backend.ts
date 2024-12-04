@@ -1,14 +1,18 @@
 import { defineBackend } from '@aws-amplify/backend';
-import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { Policy, PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
+import { Stack } from 'aws-cdk-lib';
+import { StartingPosition, EventSourceMapping } from 'aws-cdk-lib/aws-lambda';
 
 import { auth } from './auth/resource';
 import { data } from './data/resource';
 import { refreshApiKey } from './jobs/refresh-api-key/resource';
+import { dynamoDBFunction } from './functions/dynamoDB-function/resource';
 
 const backend = defineBackend({
   auth,
   data,
   refreshApiKey,
+  dynamoDBFunction,
 });
 
 /* --------------------------- Configuration start -------------------------- */
@@ -40,4 +44,39 @@ refreshApiKeyLambda.addToRolePolicy(
     resources: ['*'],
   }),
 );
+
+/**
+ * 添加 DynamoDB Stream 权限
+ */
+const todoTable = backend.data.resources.tables['Todo'];
+const policy = new Policy(Stack.of(todoTable), 'DynamoDBFunctionStreamingPolicy', {
+  statements: [
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: [
+        'dynamodb:DescribeStream',
+        'dynamodb:GetRecords',
+        'dynamodb:GetShardIterator',
+        'dynamodb:ListStreams',
+        'dynamodb:UpdateItem',
+      ],
+      resources: ['*'],
+    }),
+  ],
+});
+backend.dynamoDBFunction.resources.lambda.role?.attachInlinePolicy(policy);
+
+/**
+ * 注册 DynamoDB Stream 事件流
+ */
+const mapping = new EventSourceMapping(
+  Stack.of(todoTable),
+  'DynamoDBFunctionTodoEventStreamMapping',
+  {
+    target: backend.dynamoDBFunction.resources.lambda,
+    eventSourceArn: todoTable.tableStreamArn,
+    startingPosition: StartingPosition.LATEST,
+  },
+);
+mapping.node.addDependency(policy);
 /* --------------------------- Policy end -------------------------- */
