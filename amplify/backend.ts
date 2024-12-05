@@ -100,7 +100,7 @@ migrateDataLambda.addToRolePolicy(
  * 添加 DynamoDB Stream 权限
  */
 const todoTable = backend.data.resources.tables['Todo'];
-const policy = new Policy(Stack.of(todoTable), 'DynamoDBFunctionStreamingPolicy', {
+const policy = new Policy(Stack.of(todoTable), 'MyDynamoDBFunctionStreamingPolicy', {
   statements: [
     new PolicyStatement({
       effect: Effect.ALLOW,
@@ -122,7 +122,7 @@ backend.dynamoDBFunction.resources.lambda.role?.attachInlinePolicy(policy);
  */
 const mapping = new EventSourceMapping(
   Stack.of(todoTable),
-  'DynamoDBFunctionTodoEventStreamMapping',
+  'MyDynamoDBFunctionTodoEventStreamMapping',
   {
     target: backend.dynamoDBFunction.resources.lambda,
     eventSourceArn: todoTable.tableStreamArn,
