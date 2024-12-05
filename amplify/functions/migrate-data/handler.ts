@@ -1,10 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Handler } from 'aws-cdk-lib/aws-lambda';
-import { DynamoDBClient, PutItemCommand, ScanCommand } from '@aws-sdk/client-dynamodb';
+import {
+  DynamoDBClient,
+  BatchWriteItemCommand,
+  ScanCommand,
+  ScanCommandInput,
+  BatchWriteItemCommandInput,
+} from '@aws-sdk/client-dynamodb';
 import { Logger } from '@aws-lambda-powertools/logger';
-import { chunk } from 'lodash-es';
+import { sleep } from '../../utils';
 
-const CHUNK_SIZE = 25;
+const BATCH_SIZE = 25; // 批量写入的数据数量（n <= 25，size <= 16MB）
+const MAX_RETRY = 5; // 最大重试次数
 
 const client = new DynamoDBClient({});
 
@@ -19,63 +26,83 @@ interface HandlerEvent {
 }
 
 export const handler: Handler = async ({ sourceTableName, targetTableName }: HandlerEvent) => {
-  try {
-    logger.info(`Migrating data from ${sourceTableName} to ${targetTableName}`);
+  logger.info(`Migrating data from ${sourceTableName} to ${targetTableName}`);
 
-    if (!sourceTableName || !targetTableName || sourceTableName === targetTableName) {
-      throw new Error('Invalid source or target table name');
-    }
-
-    const allItems = await getAllItemsFromSourceTable(sourceTableName);
-
-    logger.info(`Migration item count: ${allItems.length}`);
-
-    let count = 1;
-    const chunks = chunk(allItems, CHUNK_SIZE);
-
-    for (const chunk of chunks) {
-      logger.info(`creating tasks for chunk: ${JSON.stringify(chunk)}`);
-      await Promise.all(updateItemsInTargetTable(chunk, targetTableName));
-      logger.info(`Processed chunk ${count++} of ${chunks.length}`);
-    }
-    return true;
-  } catch (error) {
-    logger.error('migration failed =>', error as Error);
+  if (!sourceTableName || !targetTableName || sourceTableName === targetTableName) {
+    logger.error('Invalid source or target table name');
     return false;
   }
-};
 
-async function getAllItemsFromSourceTable(sourceTableName: string) {
-  const input = {
+  const scanInput = {
     TableName: sourceTableName,
-  };
-  const command = new ScanCommand(input);
+    Limit: BATCH_SIZE, // 每次扫描的最大数量
+    ConsistentRead: true, // 结果包含扫描开始前的存在的所有数据
+  } as ScanCommandInput;
 
-  let nextScan = await client.send(command);
-  let items = [...(nextScan.Items || [])];
+  let totalCount = 0;
 
-  while (nextScan.LastEvaluatedKey) {
-    const input = {
-      TableName: sourceTableName,
-      ExclusiveStartKey: nextScan.LastEvaluatedKey,
-    };
+  // ScanCommand 单次扫描结果不会超过 1MB
+  while (true) {
+    try {
+      const scanCommand = new ScanCommand(scanInput);
+      const { Items, LastEvaluatedKey } = await client.send(scanCommand);
 
-    nextScan = await client.send(new ScanCommand(input));
-    items = items.concat(nextScan.Items || []);
+      if (!Items || Items?.length === 0) break;
+
+      const batchWriteInput = {
+        RequestItems: {
+          [targetTableName]: Items.map(item => ({ PutRequest: { Item: item } })),
+        },
+      };
+
+      const batchWritecommand = new BatchWriteItemCommand(batchWriteInput);
+      let { UnprocessedItems } = await client.send(batchWritecommand);
+
+      // 对于因吞吐量限制等原因未处理的数据，使用指数退避算法重试
+      if (UnprocessedItems && UnprocessedItems[targetTableName]?.length > 0) {
+        logger.warn('Unprocessed item', UnprocessedItems);
+
+        let retry = 1;
+        while (
+          retry <= MAX_RETRY &&
+          UnprocessedItems &&
+          UnprocessedItems[targetTableName]?.length > 0
+        ) {
+          await sleep(50 * Math.pow(2, retry)); // 指数退避延迟
+
+          const retryBatchWriteInput: BatchWriteItemCommandInput = {
+            RequestItems: UnprocessedItems,
+          };
+
+          const retryBatchWritecommand = new BatchWriteItemCommand(retryBatchWriteInput);
+          const { UnprocessedItems: retryUnprocessedItems } = await client.send(
+            retryBatchWritecommand,
+          );
+
+          // 如果还有未处理的数据，继续重试
+          if (retryUnprocessedItems && retryUnprocessedItems[targetTableName]?.length > 0) {
+            UnprocessedItems = retryUnprocessedItems;
+            retry += 1;
+          } else {
+            break;
+          }
+        }
+
+        if (retry > MAX_RETRY) throw new Error('Failed to process unprocessed items after retry');
+      }
+
+      totalCount += Items.length;
+      logger.info(`Processed ${totalCount} items`);
+
+      if (!LastEvaluatedKey) break;
+
+      // 继续扫描下一批次
+      scanInput.ExclusiveStartKey = LastEvaluatedKey;
+    } catch (error) {
+      logger.error(`Migrating data failed`, error as Error);
+    }
   }
 
-  return items;
-}
-
-async function createPutPromise(item: any, targetTableName: string) {
-  const input = {
-    Item: item,
-    TableName: targetTableName,
-  };
-  const command = new PutItemCommand(input);
-  return client.send(command);
-}
-
-function updateItemsInTargetTable(items: any[], targetTableName: string) {
-  return items.map(item => createPutPromise(item, targetTableName));
-}
+  logger.info(`Successfully migrated ${totalCount} items`);
+  return true;
+};

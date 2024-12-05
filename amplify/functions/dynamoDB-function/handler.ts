@@ -19,6 +19,16 @@ export const handler: DynamoDBStreamHandler = async event => {
       const newImage = record.dynamodb?.NewImage;
       logger.info(`New Image: ${JSON.stringify(newImage)}`);
 
+      if (!newImage?.id?.S) {
+        logger.error('Invalid id');
+        continue;
+      }
+
+      if (newImage?.expiredAt?.N) {
+        logger.warn('Item already has expiredAt field');
+        continue;
+      }
+
       // 更新 expiredAt 字段，使得数据在一段时间后过期
       const input = {
         TableName: env.TTL_TABLE_NAME,
