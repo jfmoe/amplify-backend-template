@@ -110,6 +110,7 @@ const policy = new Policy(Stack.of(todoTable), 'MyDynamoDBFunctionStreamingPolic
         'dynamodb:GetShardIterator',
         'dynamodb:ListStreams',
         'dynamodb:UpdateItem',
+        'dynamodb:BatchWriteItem',
       ],
       resources: ['*'],
     }),
