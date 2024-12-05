@@ -91,7 +91,7 @@ refreshApiKeyLambda.addToRolePolicy(
 const migrateDataLambda = backend.migrateData.resources.lambda;
 migrateDataLambda.addToRolePolicy(
   new PolicyStatement({
-    actions: ['dynamodb:Scan', 'dynamodb:PutItem'],
+    actions: ['dynamodb:Scan', 'dynamodb:PutItem', 'dynamodb:BatchWriteItem'],
     resources: ['*'],
   }),
 );
@@ -110,7 +110,6 @@ const policy = new Policy(Stack.of(todoTable), 'MyDynamoDBFunctionStreamingPolic
         'dynamodb:GetShardIterator',
         'dynamodb:ListStreams',
         'dynamodb:UpdateItem',
-        'dynamodb:BatchWriteItem',
       ],
       resources: ['*'],
     }),
