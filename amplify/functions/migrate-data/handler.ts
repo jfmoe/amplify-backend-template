@@ -100,7 +100,7 @@ export const handler: Handler = async ({ sourceTableName, targetTableName }: Han
       scanInput.ExclusiveStartKey = LastEvaluatedKey;
     } catch (error) {
       logger.error(`Migrating data failed`, error as Error);
-      return false;
+      continue;
     }
   }
 
