@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Handler } from 'aws-cdk-lib/aws-lambda';
+import type { Handler } from 'aws-lambda';
 import {
   DynamoDBClient,
   BatchWriteItemCommand,
@@ -7,11 +7,13 @@ import {
   ScanCommandInput,
   BatchWriteItemCommandInput,
 } from '@aws-sdk/client-dynamodb';
+import { LambdaClient, InvokeCommand, InvokeCommandInput } from '@aws-sdk/client-lambda'; // ES Modules import
 import { Logger } from '@aws-lambda-powertools/logger';
 import { sleep } from '../../utils';
 
 const BATCH_SIZE = 25; // 批量写入的数据数量（n <= 25，size <= 16MB）
 const MAX_RETRY = 5; // 最大重试次数
+const REMAINING_TIME = 60 * 1000 * 15; // 剩余多少时间时触发自身调用
 
 const client = new DynamoDBClient({});
 
@@ -23,27 +25,64 @@ const logger = new Logger({
 interface HandlerEvent {
   sourceTableName: string;
   targetTableName: string;
+  ExclusiveStartKey?: string;
+  result?: HandlerResult;
 }
 
-export const handler: Handler = async ({ sourceTableName, targetTableName }: HandlerEvent) => {
+interface HandlerResult {
+  result: boolean;
+  totalCount: number;
+  startTime: number;
+  endTime: number;
+}
+
+export const handler: Handler<HandlerEvent, HandlerResult> = async (
+  {
+    sourceTableName,
+    targetTableName,
+    ExclusiveStartKey,
+    result = {
+      result: false,
+      totalCount: 0,
+      startTime: Date.now(),
+      endTime: Date.now(),
+    },
+  },
+  context,
+) => {
   logger.info(`Migrating data from ${sourceTableName} to ${targetTableName}`);
 
   if (!sourceTableName || !targetTableName || sourceTableName === targetTableName) {
     logger.error('Invalid source or target table name');
-    return false;
+    return { ...result, endTime: Date.now() };
   }
 
   const scanInput = {
     TableName: sourceTableName,
+    ExclusiveStartKey,
     Limit: BATCH_SIZE, // 每次扫描的最大数量
     ConsistentRead: true, // 结果包含扫描开始前的存在的所有数据
   } as ScanCommandInput;
 
-  let totalCount = 0;
+  try {
+    // ScanCommand 单次扫描结果不会超过 1MB
+    while (true) {
+      // 如果执行时间超过最大限制，异步调用自身以继续任务
+      if (context.getRemainingTimeInMillis() <= REMAINING_TIME) {
+        logger.info('Execution time limit reached, invoking function again.');
 
-  // ScanCommand 单次扫描结果不会超过 1MB
-  while (true) {
-    try {
+        const lambdaClient = new LambdaClient();
+        const lambdaInput = {
+          FunctionName: context.functionName,
+          InvocationType: 'Event', // 异步调用
+          Payload: JSON.stringify({ ...scanInput, result }),
+        } as InvokeCommandInput;
+        const command = new InvokeCommand(lambdaInput);
+        lambdaClient.send(command);
+
+        return { ...result, endTime: Date.now() };
+      }
+
       const scanCommand = new ScanCommand(scanInput);
       const { Items, LastEvaluatedKey } = await client.send(scanCommand);
 
@@ -88,22 +127,24 @@ export const handler: Handler = async ({ sourceTableName, targetTableName }: Han
           }
         }
 
-        if (retry > MAX_RETRY) throw new Error('Failed to process unprocessed items after retry');
+        if (retry > MAX_RETRY)
+          throw new Error(
+            `Failed to process unprocessed items after retry: ${JSON.stringify(UnprocessedItems)}`,
+          );
       }
 
-      totalCount += Items.length;
-      logger.info(`Processed ${totalCount} items`);
+      result.totalCount += Items.length;
+      logger.info(`Processed ${result.totalCount} items`);
 
       if (!LastEvaluatedKey) break;
 
       // 继续扫描下一批次
       scanInput.ExclusiveStartKey = LastEvaluatedKey;
-    } catch (error) {
-      logger.error(`Migrating data failed`, error as Error);
-      continue;
     }
+  } catch (error) {
+    logger.error(`Migrating data failed`, error as Error);
+    return { ...result, endTime: Date.now() };
   }
 
-  logger.info(`Successfully migrated ${totalCount} items`);
-  return true;
+  return { ...result, endTime: Date.now(), result: true };
 };
