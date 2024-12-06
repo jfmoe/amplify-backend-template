@@ -6,8 +6,8 @@ import {
   ScanCommand,
   ScanCommandInput,
   BatchWriteItemCommandInput,
+  AttributeValue,
 } from '@aws-sdk/client-dynamodb';
-import { LambdaClient, InvokeCommand, InvokeCommandInput } from '@aws-sdk/client-lambda'; // ES Modules import
 import { Logger } from '@aws-lambda-powertools/logger';
 import { sleep } from '../../utils';
 
@@ -25,7 +25,8 @@ const logger = new Logger({
 interface HandlerEvent {
   sourceTableName: string;
   targetTableName: string;
-  ExclusiveStartKey?: string;
+  ExclusiveStartKey?: Record<string, AttributeValue>;
+  shouldContinue?: boolean;
   result?: HandlerResult;
 }
 
@@ -36,8 +37,8 @@ interface HandlerResult {
   endTime: number;
 }
 
-export const handler: Handler<HandlerEvent, HandlerResult> = async (
-  {
+export const handler: Handler<HandlerEvent, HandlerEvent> = async (event, context) => {
+  const {
     sourceTableName,
     targetTableName,
     ExclusiveStartKey,
@@ -47,14 +48,13 @@ export const handler: Handler<HandlerEvent, HandlerResult> = async (
       startTime: Date.now(),
       endTime: Date.now(),
     },
-  },
-  context,
-) => {
+  } = event;
+
   logger.info(`Migrating data from ${sourceTableName} to ${targetTableName}`);
 
   if (!sourceTableName || !targetTableName || sourceTableName === targetTableName) {
     logger.error('Invalid source or target table name');
-    return { ...result, endTime: Date.now() };
+    return { ...event, shouldContinue: false, result: { ...result, endTime: Date.now() } };
   }
 
   const scanInput = {
@@ -67,20 +67,18 @@ export const handler: Handler<HandlerEvent, HandlerResult> = async (
   try {
     // ScanCommand 单次扫描结果不会超过 1MB
     while (true) {
-      // 如果执行时间超过最大限制，异步调用自身以继续任务
+      // 如果执行时间超过最大限制，结合 Step Functions 继续迭代
       if (context.getRemainingTimeInMillis() <= REMAINING_TIME) {
         logger.info('Execution time limit reached, invoking function again.');
 
-        const lambdaClient = new LambdaClient();
-        const lambdaInput = {
-          FunctionName: context.functionName,
-          InvocationType: 'Event', // 异步调用
-          Payload: JSON.stringify({ ...scanInput, result }),
-        } as InvokeCommandInput;
-        const command = new InvokeCommand(lambdaInput);
-        lambdaClient.send(command);
+        const nextEvent = {
+          ...event,
+          shouldContinue: true,
+          ExclusiveStartKey: scanInput.ExclusiveStartKey,
+          result: { ...result, endTime: Date.now() },
+        };
 
-        return { ...result, endTime: Date.now() };
+        return nextEvent;
       }
 
       const scanCommand = new ScanCommand(scanInput);
@@ -143,8 +141,12 @@ export const handler: Handler<HandlerEvent, HandlerResult> = async (
     }
   } catch (error) {
     logger.error(`Migrating data failed`, error as Error);
-    return { ...result, endTime: Date.now() };
+    return { ...event, shouldContinue: false, result: { ...result, endTime: Date.now() } };
   }
 
-  return { ...result, endTime: Date.now(), result: true };
+  return {
+    ...event,
+    shouldContinue: true,
+    result: { ...result, endTime: Date.now(), result: true },
+  };
 };
