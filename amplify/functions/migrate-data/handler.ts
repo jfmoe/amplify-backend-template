@@ -13,7 +13,7 @@ import { sleep } from '../../utils';
 
 const BATCH_SIZE = 25; // 批量写入的数据数量（n <= 25，size <= 16MB）
 const MAX_RETRY = 5; // 最大重试次数
-const REMAINING_TIME = 60 * 1000 * 15 - 100; // 剩余多少时间时触发自身调用
+const REMAINING_TIME = 60 * 1000; // 剩余多少时间时触发自身调用
 
 const client = new DynamoDBClient({});
 
