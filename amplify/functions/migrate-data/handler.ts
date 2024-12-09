@@ -50,7 +50,9 @@ export const handler: Handler<HandlerEvent, HandlerEvent> = async (event, contex
     },
   } = event;
 
-  logger.info(`Migrating data from ${sourceTableName} to ${targetTableName}`);
+  logger.info(
+    `Migrating data from ${sourceTableName} to ${targetTableName} with ${JSON.stringify(event)}`,
+  );
 
   if (!sourceTableName || !targetTableName || sourceTableName === targetTableName) {
     logger.error('Invalid source or target table name');
@@ -146,7 +148,7 @@ export const handler: Handler<HandlerEvent, HandlerEvent> = async (event, contex
 
   return {
     ...event,
-    shouldContinue: true,
+    shouldContinue: false,
     result: { ...result, endTime: Date.now(), result: true },
   };
 };
