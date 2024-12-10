@@ -8,7 +8,7 @@ export const refreshApiKey = defineFunction({
   schedule: 'every day',
   entry: './handler.ts',
   environment: {
-    API_KEY: secret('API_KEY'),
+    API_KEY: secret('API_KEY') ?? '',
     API_ID: process.env.API_ID ?? '',
     REGION: process.env.AWS_REGION ?? '',
   },
