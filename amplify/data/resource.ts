@@ -13,9 +13,17 @@ const schema = a.schema({
       expiredAt: a.timestamp(), // 过期时间戳
     })
     .authorization(allow => [allow.publicApiKey()]),
+  Log: a
+    .model({
+      content: a.string(),
+      expiredAt: a.timestamp(), // 过期时间戳
+    })
+    .authorization(allow => [allow.publicApiKey()]),
 });
 
 export type Schema = ClientSchema<typeof schema>;
+
+export type ModalName = keyof Schema;
 
 export const data = defineData({
   schema,

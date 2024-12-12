@@ -3,6 +3,9 @@ import { DynamoDBClient, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { Logger } from '@aws-lambda-powertools/logger';
 import { env } from '$amplify/env/dynamoDB-function';
 import dayjs from 'dayjs';
+import { TTLConfig } from '../../config';
+
+const TTL_CONFIG = JSON.parse(env.TTL_CONFIG) as TTLConfig;
 
 const logger = new Logger({
   logLevel: 'INFO',
@@ -15,6 +18,8 @@ export const handler: DynamoDBStreamHandler = async event => {
   for (const record of event.Records) {
     logger.info(`Processing record: ${JSON.stringify(record)}`);
 
+    const tableName = record.eventSourceARN?.split('/')[1];
+
     if (record.eventName === 'INSERT') {
       const newImage = record.dynamodb?.NewImage;
       logger.info(`New Image: ${JSON.stringify(newImage)}`);
@@ -24,14 +29,17 @@ export const handler: DynamoDBStreamHandler = async event => {
         continue;
       }
 
+      // 更新 expiredAt 字段，使得数据在一段时间后过期
+      const config = TTL_CONFIG.find(c => c.tableName === tableName);
+      if (!config) continue;
+
       if (newImage?.expiredAt?.N) {
         logger.warn('Item already has expiredAt field');
         continue;
       }
 
-      // 更新 expiredAt 字段，使得数据在一段时间后过期
       const input = {
-        TableName: env.TTL_TABLE_NAME,
+        TableName: config.tableName,
         Key: {
           id: newImage?.id,
         },
@@ -42,7 +50,7 @@ export const handler: DynamoDBStreamHandler = async event => {
         ExpressionAttributeValues: {
           ':expiredAt': {
             N: dayjs(newImage?.createdAt?.S ?? Date.now())
-              .add(1, 'year')
+              .add(config.timeToLive, 'second')
               .unix()
               .toString(),
           },
@@ -50,7 +58,7 @@ export const handler: DynamoDBStreamHandler = async event => {
       };
 
       try {
-        // @ts-ignore
+        // @ts-expect-error xxx
         const command = new UpdateItemCommand(input);
         const response = await dynamoDBClient.send(command);
         logger.info(`Item updated successfully: ${JSON.stringify(response)}`);

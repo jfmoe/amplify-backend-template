@@ -11,6 +11,7 @@ import { data } from './data/resource';
 import { refreshApiKey } from './jobs/refresh-api-key/resource';
 import { dynamoDBFunction } from './functions/dynamoDB-function/resource';
 import { migrateData } from './functions/migrate-data/resource';
+import { TTL_CONFIG } from './config';
 
 const backend = defineBackend({
   auth,
@@ -31,10 +32,13 @@ for (const table of Object.values(amplifyDynamoDbTables)) {
 }
 
 // 根据需要为 table 开启 TTL 功能（如果当前时间超过设定的时间戳，则该条数据过期）
-amplifyDynamoDbTables['Todo'].timeToLiveAttribute = {
-  attributeName: 'expiredAt',
-  enabled: true,
-};
+for (const [modalName, table] of Object.entries(amplifyDynamoDbTables)) {
+  const shouldEnableTTL = TTL_CONFIG.some(c => c.modalName === modalName);
+  table.timeToLiveAttribute = {
+    attributeName: 'expiredAt',
+    enabled: shouldEnableTTL,
+  };
+}
 
 /**
  * 按需备份所有 table
@@ -97,37 +101,38 @@ migrateDataLambda.addToRolePolicy(
 );
 
 /**
- * 添加 DynamoDB Stream 权限
+ * 添加 DynamoDB Stream 权限和注册事件流
  */
-const todoTable = backend.data.resources.tables['Todo'];
-const policy = new Policy(Stack.of(todoTable), 'MyDynamoDBFunctionStreamingPolicy', {
-  statements: [
-    new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: [
-        'dynamodb:DescribeStream',
-        'dynamodb:GetRecords',
-        'dynamodb:GetShardIterator',
-        'dynamodb:ListStreams',
-        'dynamodb:UpdateItem',
-      ],
-      resources: ['*'],
-    }),
-  ],
-});
-backend.dynamoDBFunction.resources.lambda.role?.attachInlinePolicy(policy);
+const tablesToStream = TTL_CONFIG.map(c => c.modalName);
 
-/**
- * 注册 DynamoDB Stream 事件流
- */
-const mapping = new EventSourceMapping(
-  Stack.of(todoTable),
-  'MyDynamoDBFunctionTodoEventStreamMapping',
-  {
-    target: backend.dynamoDBFunction.resources.lambda,
-    eventSourceArn: todoTable.tableStreamArn,
-    startingPosition: StartingPosition.LATEST,
-  },
-);
-mapping.node.addDependency(policy);
+for (const tableName of tablesToStream) {
+  const table = backend.data.resources.tables[tableName];
+  const policy = new Policy(Stack.of(table), `${tableName}DynamoDBFunctionStreamingPolicy`, {
+    statements: [
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: [
+          'dynamodb:DescribeStream',
+          'dynamodb:GetRecords',
+          'dynamodb:GetShardIterator',
+          'dynamodb:ListStreams',
+          'dynamodb:UpdateItem',
+        ],
+        resources: ['*'],
+      }),
+    ],
+  });
+  backend.dynamoDBFunction.resources.lambda.role?.attachInlinePolicy(policy);
+
+  const mapping = new EventSourceMapping(
+    Stack.of(table),
+    `${tableName}DynamoDBFunctionEventStreamMapping`,
+    {
+      target: backend.dynamoDBFunction.resources.lambda,
+      eventSourceArn: table.tableStreamArn,
+      startingPosition: StartingPosition.LATEST,
+    },
+  );
+  mapping.node.addDependency(policy);
+}
 /* --------------------------- Policy end -------------------------- */
