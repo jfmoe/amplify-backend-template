@@ -25,7 +25,7 @@ of our documentation.
 
 #### environment variables
 
-- TTL_TABLE_NAME
+- TTL_CONFIG
 - API_ID
 
 #### secrets

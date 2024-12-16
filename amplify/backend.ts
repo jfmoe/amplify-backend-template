@@ -11,7 +11,7 @@ import { data } from './data/resource';
 import { refreshApiKey } from './jobs/refresh-api-key/resource';
 import { dynamoDBFunction } from './functions/dynamoDB-function/resource';
 import { migrateData } from './functions/migrate-data/resource';
-import { TTL_CONFIG } from './config';
+import { prefix, TTL_CONFIG } from './config';
 
 const backend = defineBackend({
   auth,
@@ -47,18 +47,18 @@ const backupStack = backend.createStack('backup-stack');
 const myTables = Object.values(backend.data.resources.tables);
 
 const vault = new BackupVault(backupStack, 'BackupVault', {
-  backupVaultName: 'backup-vault',
+  backupVaultName: `${prefix}-backup-vault`,
 });
 
 const plan = new BackupPlan(backupStack, 'BackupPlan', {
-  backupPlanName: 'backup-plan',
+  backupPlanName: `${prefix}-backup-plan`,
   backupVault: vault,
 });
 
 plan.addRule(
   new BackupPlanRule({
     deleteAfter: Duration.days(365),
-    ruleName: 'backup-plan-rule',
+    ruleName: `${prefix}-backup-plan-rule`,
     scheduleExpression: Schedule.cron({
       minute: '0',
       hour: '0',
